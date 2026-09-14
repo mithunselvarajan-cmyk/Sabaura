@@ -1,0 +1,116 @@
+if _G.__NextBaseCleanup then pcall(_G.__NextBaseCleanup) end
+local CoreGui = game:GetService("CoreGui")
+local Plots = workspace:WaitForChild("Plots")
+local BASE_POSITIONS = {
+	Vector3.new(-342.439, 10.399, 113.107),
+	Vector3.new(-342.439, 10.465,   6.107),
+	Vector3.new(-476.752, 10.465, 114.107),
+	Vector3.new(-476.752, 10.465,   7.107),
+	Vector3.new(-342.440, 10.464, 220.107),
+	Vector3.new(-476.752, 10.465, 221.107),
+	Vector3.new(-342.439, 10.465,-100.893),
+	Vector3.new(-476.752, 10.465, -99.893),
+}
+local MATCH_TOL = 6
+local EMPTY_TEXT = "Empty Base"
+local ARROW = utf8.char(0x2B07)
+local function baseIndexFor(model)
+	local ok, cf = pcall(function() return (model:GetBoundingBox()) end)
+	if not ok then return nil end
+	local p, bestI, bestD = cf.Position
+	for i, bp in ipairs(BASE_POSITIONS) do
+		local dx, dz = p.X - bp.X, p.Z - bp.Z
+		local d = math.sqrt(dx * dx + dz * dz)
+		if not bestD or d < bestD then bestI, bestD = i, d end
+	end
+	return (bestD and bestD <= MATCH_TOL) and bestI or nil
+end
+local bases = {}
+local connected = {}
+local conns = {}
+local anchor = Instance.new("Part")
+anchor.Name = "__NextBaseAnchor"
+anchor.Anchored, anchor.CanCollide, anchor.CanQuery, anchor.CanTouch = true, false, false, false
+anchor.Transparency = 1
+anchor.Size = Vector3.new(1, 1, 1)
+anchor.Parent = CoreGui
+local bb = Instance.new("BillboardGui")
+bb.Name = "NextBaseBillboard"
+bb.Adornee = anchor
+bb.Size = UDim2.fromScale(32, 13)
+bb.StudsOffset = Vector3.new(0, 10, 0)
+bb.MaxDistance = math.huge
+bb.AlwaysOnTop = true
+bb.LightInfluence = 0
+bb.Enabled = false
+bb.Parent = anchor
+local top = Instance.new("TextLabel", bb)
+top.BackgroundTransparency = 1
+top.AnchorPoint = Vector2.new(0.5, 0.5)
+top.Position = UDim2.fromScale(0.5, 0.30)
+top.Size = UDim2.fromScale(0.95, 0.50)
+top.Font = Enum.Font.GothamBlack
+top.Text = ARROW .. "  NEXT  " .. ARROW
+top.TextScaled = true
+top.TextColor3 = Color3.fromRGB(255, 60, 60)
+top.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+top.TextStrokeTransparency = 0
+local bottom = Instance.new("TextLabel", bb)
+bottom.BackgroundTransparency = 1
+bottom.AnchorPoint = Vector2.new(0.5, 0.5)
+bottom.Position = UDim2.fromScale(0.5, 0.72)
+bottom.Size = UDim2.fromScale(0.95, 0.42)
+bottom.Font = Enum.Font.GothamBlack
+bottom.Text = "EMPTY BASE"
+bottom.TextScaled = true
+bottom.TextColor3 = Color3.fromRGB(255, 255, 255)
+bottom.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+bottom.TextStrokeTransparency = 0
+local function isEmpty(label)
+	return (label.Text:gsub("^%s+", ""):gsub("%s+$", "")) == EMPTY_TEXT
+end
+local function recompute()
+	local targetIdx
+	for i = 1, #BASE_POSITIONS do
+		local b = bases[i]
+		if b and b.label and isEmpty(b.label) then targetIdx = i break end
+	end
+	if targetIdx then
+		anchor.CFrame = bases[targetIdx].cf
+		bb.Enabled = true
+	else
+		bb.Enabled = false
+	end
+end
+local function connectLabel(label)
+	if connected[label] then return end
+	connected[label] = true
+	table.insert(conns, label:GetPropertyChangedSignal("Text"):Connect(recompute))
+end
+local function scan()
+	for _, plot in ipairs(Plots:GetChildren()) do
+		local sign  = plot:FindFirstChild("PlotSign")
+		local model = sign and sign:FindFirstChild("Model")
+		local gui   = sign and sign:FindFirstChild("SurfaceGui")
+		local fr    = gui and gui:FindFirstChild("Frame")
+		local label = fr and fr:FindFirstChild("TextLabel")
+		if model and label then
+			local idx = baseIndexFor(model)
+			if idx then
+				bases[idx] = { label = label, cf = (select(1, model:GetBoundingBox())) }
+				connectLabel(label)
+			end
+		end
+	end
+	recompute()
+end
+scan()
+table.insert(conns, Plots.DescendantAdded:Connect(function(d)
+	if d:IsA("TextLabel") then task.defer(scan) end
+end))
+table.insert(conns, Plots.ChildAdded:Connect(function() task.defer(scan) end))
+_G.__NextBaseCleanup = function()
+	for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
+	if anchor then anchor:Destroy() end
+	_G.__NextBaseCleanup = nil
+end
